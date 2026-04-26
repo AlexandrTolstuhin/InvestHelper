@@ -11,7 +11,7 @@ import {
 	type Timestamp,
 	type Unsubscribe
 } from 'firebase/firestore';
-import { getDb } from '$lib/firebase';
+import { describeFirestoreError, getDb } from '$lib/firebase';
 import { authState } from '$lib/stores/auth.svelte';
 
 export interface Portfolio {
@@ -67,7 +67,7 @@ export function watchPortfolios() {
 			state.loading = false;
 		},
 		(err) => {
-			state.error = err.message;
+			state.error = describeFirestoreError(err);
 			state.loading = false;
 		}
 	);

@@ -56,6 +56,7 @@ async function recompute(portfolios: Portfolio[]) {
 						);
 						const items: Holding[] = snap.docs.map((d) => {
 							const data = d.data();
+							const ts = data.createdAt as { toDate(): Date } | undefined;
 							return {
 								id: d.id,
 								ticker: String(data.ticker ?? d.id),
@@ -63,7 +64,8 @@ async function recompute(portfolios: Portfolio[]) {
 								quantity: Number(data.quantity ?? 0),
 								lotsize: Number(data.lotsize ?? 1),
 								targetPercent: Number(data.targetPercent ?? 0),
-								shortName: String(data.shortName ?? d.id)
+								shortName: String(data.shortName ?? d.id),
+								createdAt: ts ? ts.toDate() : null
 							};
 						});
 						holdingsByPortfolio.set(p.id, items);

@@ -6,7 +6,7 @@ import {
 	type AppCheck
 } from 'firebase/app-check';
 import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { initializeFirestore, type Firestore, type FirestoreError } from 'firebase/firestore';
 
 const config = {
 	apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -35,6 +35,13 @@ function ensureApp(): FirebaseApp {
 
 	app = initializeApp(config);
 
+	// Авто-long-polling помогает на корпоративных прокси, режущих gRPC-канал
+	// Firestore. От ERR_BLOCKED_BY_CLIENT (блокировщики типа uBlock) не спасает —
+	// для этого случая см. isFirestoreBlockedError.
+	db = initializeFirestore(app, {
+		experimentalAutoDetectLongPolling: true
+	});
+
 	const siteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY;
 	if (siteKey) {
 		const debugToken = import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN;
@@ -57,8 +64,28 @@ export function getFirebaseAuth(): Auth {
 }
 
 export function getDb(): Firestore {
-	if (!db) db = getFirestore(ensureApp());
-	return db;
+	ensureApp();
+	return db!;
+}
+
+export function isFirestoreBlockedError(err: unknown): boolean {
+	if (!err || typeof err !== 'object') return false;
+	const code = (err as Partial<FirestoreError>).code;
+	if (code === 'unavailable') return true;
+	const msg = ((err as Error).message ?? '').toLowerCase();
+	return msg.includes('blocked') || msg.includes('failed to fetch') || msg.includes('network');
+}
+
+export function describeFirestoreError(err: unknown): string {
+	if (isFirestoreBlockedError(err)) {
+		return (
+			'Не удалось связаться с Firestore: запрос заблокирован. Скорее всего ' +
+			'активен блокировщик рекламы/трекеров (uBlock Origin, AdGuard, Brave Shields) ' +
+			'или корпоративный фильтр. Отключите блокировку для этого сайта или попробуйте ' +
+			'другой браузер.'
+		);
+	}
+	return err instanceof Error ? err.message : String(err);
 }
 
 export function getAppCheckInstance(): AppCheck | undefined {

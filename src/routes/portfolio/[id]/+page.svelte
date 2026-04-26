@@ -5,6 +5,8 @@
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
 	import AddHoldingForm from '$lib/components/AddHoldingForm.svelte';
 	import AllocationDonut from '$lib/components/AllocationDonut.svelte';
+	import TradeButtons from '$lib/components/TradeButtons.svelte';
+	import { describeFirestoreError } from '$lib/firebase';
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
 		getHoldingsState,
@@ -98,23 +100,13 @@
 	const totalTarget = $derived(holdings.items.reduce((s, h) => s + h.targetPercent, 0));
 	const allocationRows = $derived(computeAllocations(holdings.items, quotes).rows);
 
-	async function onQtyChange(ticker: string, raw: string) {
-		const v = Number(raw);
-		if (!Number.isFinite(v) || v < 0) return;
-		try {
-			await patchHolding(portfolioId, ticker, { quantity: v });
-		} catch (e) {
-			alert((e as Error).message);
-		}
-	}
-
 	async function onTargetChange(ticker: string, raw: string) {
 		const v = Number(raw);
 		if (!Number.isFinite(v) || v < 0 || v > 100) return;
 		try {
 			await patchHolding(portfolioId, ticker, { targetPercent: v });
 		} catch (e) {
-			alert((e as Error).message);
+			alert(describeFirestoreError(e));
 		}
 	}
 
@@ -123,7 +115,7 @@
 		try {
 			await removeHolding(portfolioId, ticker);
 		} catch (e) {
-			alert((e as Error).message);
+			alert(describeFirestoreError(e));
 		}
 	}
 </script>
@@ -184,6 +176,7 @@
 									<th>Цена</th>
 									<th>Лот</th>
 									<th>Кол-во</th>
+									<th>Операции</th>
 									<th>Стоимость</th>
 									<th>Сейчас, %</th>
 									<th>Цель, %</th>
@@ -210,15 +203,18 @@
 											{/if}
 										</td>
 										<td>{h.lotsize}</td>
+										<td class="nums">
+											<div>{formatNumber(h.quantity)}</div>
+											<div class="text-xs opacity-50">
+												{Math.floor(h.quantity / Math.max(1, h.lotsize))} лот.
+											</div>
+										</td>
 										<td>
-											<input
-												class="input w-24"
-												type="number"
-												min="0"
-												step={h.lotsize}
-												value={h.quantity}
-												onchange={(e) =>
-													onQtyChange(h.ticker, (e.target as HTMLInputElement).value)}
+											<TradeButtons
+												{portfolioId}
+												ticker={h.ticker}
+												quantity={h.quantity}
+												lotsize={h.lotsize}
 											/>
 										</td>
 										<td>{formatRub(h.value)}</td>
@@ -254,7 +250,13 @@
 						<p class="text-error-500 mt-2 text-sm">Котировки: {quotesError}</p>
 					{/if}
 					{#if holdings.items.length > 0}
-						<div class="mt-4 text-right">
+						<div class="mt-4 flex flex-wrap items-center justify-end gap-3">
+							<a
+								class="anchor text-sm"
+								href={resolve('/portfolio/[id]/history', { id: portfolioId })}
+							>
+								История операций →
+							</a>
 							<a
 								class="btn preset-filled-primary-500"
 								href={resolve('/portfolio/[id]/rebalance', { id: portfolioId })}

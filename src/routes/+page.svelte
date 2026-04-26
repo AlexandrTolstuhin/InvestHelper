@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
 	import DeviationBadge from '$lib/components/DeviationBadge.svelte';
+	import { describeFirestoreError } from '$lib/firebase';
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
 		cleanup,
@@ -51,7 +52,7 @@
 			newName = '';
 			await goto(resolve('/portfolio/[id]', { id }));
 		} catch (err) {
-			createError = (err as Error).message;
+			createError = describeFirestoreError(err);
 		} finally {
 			creating = false;
 		}
@@ -64,7 +65,7 @@
 		try {
 			await deletePortfolio(id);
 		} catch (err) {
-			alert((err as Error).message);
+			alert(describeFirestoreError(err));
 		}
 	}
 </script>

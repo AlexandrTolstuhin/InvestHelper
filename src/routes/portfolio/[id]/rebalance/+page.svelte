@@ -3,12 +3,14 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
+	import { describeFirestoreError } from '$lib/firebase';
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
 		getHoldingsState,
 		unwatchHoldings,
 		watchHoldings
 	} from '$lib/stores/holdings.svelte';
+	import { applyRebalance } from '$lib/stores/transactions.svelte';
 	import { fetchQuotes, type PriceQuote } from '$lib/api/moex';
 	import { buyOnlyStrategy } from '$lib/rebalance';
 	import { formatNumber, formatPercent, formatRub } from '$lib/utils/format';
@@ -20,6 +22,13 @@
 	let quotesLoading = $state(false);
 	let quotesError = $state<string | null>(null);
 	let deposit = $state<number>(50000);
+
+	// Пользовательские правки рекомендаций по тикеру.
+	// undefined → используем рекомендацию из расчёта.
+	let edits = $state<Record<string, number | undefined>>({});
+	let applying = $state(false);
+	let applyError = $state<string | null>(null);
+	let applyMessage = $state<string | null>(null);
 
 	$effect(() => {
 		if (authState.status === 'authorized' && portfolioId) {
@@ -71,25 +80,111 @@
 	}
 
 	const result = $derived.by(() => {
-		const list = holdings.items
-			.map((h) => {
-				const q = quotes.get(h.ticker);
-				return {
-					ticker: h.ticker,
-					shortName: h.shortName,
-					price: q?.price ?? 0,
-					lotsize: q?.lotsize ?? h.lotsize ?? 1,
-					quantity: h.quantity,
-					targetPercent: h.targetPercent
-				};
-			});
+		const list = holdings.items.map((h) => {
+			const q = quotes.get(h.ticker);
+			return {
+				ticker: h.ticker,
+				shortName: h.shortName,
+				price: q?.price ?? 0,
+				lotsize: q?.lotsize ?? h.lotsize ?? 1,
+				quantity: h.quantity,
+				targetPercent: h.targetPercent
+			};
+		});
 		return buyOnlyStrategy.compute({
 			holdings: list,
 			deposit: Number.isFinite(deposit) ? deposit : 0
 		});
 	});
 
-	const itemsToShow = $derived(result.items.filter((i) => i.lotsToBuy > 0 || i.targetPercent > 0));
+	const itemsToShow = $derived(
+		result.items.filter((i) => i.lotsToBuy > 0 || i.targetPercent > 0 || i.currentQty > 0)
+	);
+
+	function effectiveLots(ticker: string, recommended: number): number {
+		const v = edits[ticker];
+		return v === undefined ? recommended : v;
+	}
+
+	function maxSellLots(ticker: string): number {
+		const item = result.items.find((i) => i.ticker === ticker);
+		if (!item) return 0;
+		const lotsize = Math.max(1, item.lotsize || 1);
+		return Math.floor(item.currentQty / lotsize);
+	}
+
+	function clampSell(ticker: string, raw: number): number {
+		if (!Number.isFinite(raw)) return 0;
+		const n = Math.trunc(raw);
+		if (n >= 0) return n;
+		const minAllowed = -maxSellLots(ticker);
+		return n < minAllowed ? minAllowed : n;
+	}
+
+	function onLotsInput(ticker: string, raw: string) {
+		const n = Number(raw);
+		const clamped = clampSell(ticker, n);
+		edits[ticker] = clamped;
+		applyMessage = null;
+		applyError = null;
+	}
+
+	function resetEdits() {
+		edits = {};
+		applyError = null;
+		applyMessage = null;
+	}
+
+	const summary = $derived.by(() => {
+		let buyValue = 0;
+		let sellValue = 0;
+		let buyCount = 0;
+		let sellCount = 0;
+		for (const item of result.items) {
+			const lots = effectiveLots(item.ticker, item.lotsToBuy);
+			if (lots > 0) {
+				buyValue += lots * item.lotsize * item.price;
+				buyCount += 1;
+			} else if (lots < 0) {
+				sellValue += -lots * item.lotsize * item.price;
+				sellCount += 1;
+			}
+		}
+		return { buyValue, sellValue, buyCount, sellCount };
+	});
+
+	async function onApply() {
+		if (applying) return;
+		applyError = null;
+		applyMessage = null;
+		const ops: { ticker: string; lots: number }[] = [];
+		for (const item of result.items) {
+			const lots = effectiveLots(item.ticker, item.lotsToBuy);
+			if (!Number.isFinite(lots) || lots === 0) continue;
+			if (lots < 0) {
+				const max = maxSellLots(item.ticker);
+				if (-lots > max) {
+					applyError = `${item.ticker}: можно продать не более ${max} лот.`;
+					return;
+				}
+			}
+			ops.push({ ticker: item.ticker, lots });
+		}
+		if (ops.length === 0) {
+			applyError = 'Нет ненулевых операций для применения';
+			return;
+		}
+		applying = true;
+		try {
+			await applyRebalance(portfolioId, ops);
+			edits = {};
+			applyMessage = `Применено операций: ${ops.length}`;
+		} catch (err) {
+			applyError = describeFirestoreError(err);
+		} finally {
+			applying = false;
+		}
+	}
 </script>
 
 <AuthGuard>
@@ -112,13 +207,7 @@
 				<div class="card preset-tonal space-y-3 p-4">
 					<label class="label">
 						<span class="text-xs opacity-70">Сумма к внесению, ₽</span>
-						<input
-							class="input"
-							type="number"
-							min="0"
-							step="100"
-							bind:value={deposit}
-						/>
+						<input class="input" type="number" min="0" step="100" bind:value={deposit} />
 					</label>
 					<dl class="nums space-y-1 text-sm">
 						<div class="flex justify-between">
@@ -127,64 +216,118 @@
 						</div>
 						<div class="flex justify-between">
 							<dt class="opacity-70">Будет потрачено</dt>
-							<dd>{formatRub(result.totalSpent)}</dd>
+							<dd>{formatRub(summary.buyValue)}</dd>
 						</div>
+						{#if summary.sellValue > 0}
+							<div class="flex justify-between">
+								<dt class="opacity-70">Получено от продаж</dt>
+								<dd>{formatRub(summary.sellValue)}</dd>
+							</div>
+						{/if}
 						<div class="flex justify-between">
 							<dt class="opacity-70">Остаток кэша</dt>
-							<dd>{formatRub(result.leftover)}</dd>
-						</div>
-						<div class="flex justify-between border-t pt-1 font-semibold">
-							<dt>После покупки</dt>
-							<dd>{formatRub(result.totalNewValue)}</dd>
+							<dd>{formatRub(deposit - summary.buyValue + summary.sellValue)}</dd>
 						</div>
 					</dl>
+					<button
+						class="btn preset-filled-primary-500 w-full"
+						type="button"
+						onclick={onApply}
+						disabled={applying || (summary.buyCount === 0 && summary.sellCount === 0)}
+					>
+						{applying ? 'Применяю…' : 'Применить как операции'}
+					</button>
+					<button
+						class="btn preset-tonal w-full"
+						type="button"
+						onclick={resetEdits}
+						disabled={applying || Object.keys(edits).length === 0}
+					>
+						Сбросить правки
+					</button>
+					{#if applyError}
+						<p class="text-error-500 text-xs">{applyError}</p>
+					{/if}
+					{#if applyMessage}
+						<p class="text-success-600-400 text-xs">{applyMessage}</p>
+					{/if}
 				</div>
 
 				<div>
 					<div class="card border-surface-200-800 overflow-x-auto border p-2">
-					<table class="nums table w-full text-sm">
-						<thead>
-							<tr>
-								<th>Тикер</th>
-								<th>Цена</th>
-								<th>Лот</th>
-								<th>Купить</th>
-								<th>Стоимость</th>
-								<th>Цель / новая</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each itemsToShow as item (item.ticker)}
-								<tr class:opacity-50={item.lotsToBuy === 0}>
-									<td>
-										<div class="font-mono">{item.ticker}</div>
-										<div class="text-xs opacity-60">{item.shortName}</div>
-									</td>
-									<td>
-										{#if item.price > 0}
-											{formatRub(item.price)}
-										{:else}
-											<span class="text-error-500 text-xs">нет цены</span>
-										{/if}
-									</td>
-									<td>{item.lotsize}</td>
-									<td>
-										{#if item.lotsToBuy > 0}
-											<div class="font-semibold">{item.lotsToBuy} лот.</div>
-											<div class="text-xs opacity-60">= {formatNumber(item.qtyToBuy)} шт.</div>
-										{:else}
-											<span class="opacity-50">—</span>
-										{/if}
-									</td>
-									<td>{formatRub(item.spend)}</td>
-									<td>
-										<div>{formatPercent(item.targetPercent)}</div>
-										<div class="text-xs opacity-60">→ {formatPercent(item.newPercent)}</div>
-									</td>
+						<table class="nums table w-full text-sm">
+							<thead>
+								<tr>
+									<th>Тикер</th>
+									<th>Цена</th>
+									<th>Лот</th>
+									<th>Сейчас</th>
+									<th>Лотов (−прод./+пок.)</th>
+									<th>Стоимость</th>
+									<th>Цель / новая</th>
 								</tr>
-							{/each}
-						</tbody>
-					</table>
+							</thead>
+							<tbody>
+								{#each itemsToShow as item (item.ticker)}
+									{@const lots = effectiveLots(item.ticker, item.lotsToBuy)}
+									{@const spend = lots * item.lotsize * item.price}
+									{@const newQty = item.currentQty + lots * item.lotsize}
+									<tr class:opacity-50={lots === 0 && item.targetPercent === 0}>
+										<td>
+											<div class="font-mono">{item.ticker}</div>
+											<div class="text-xs opacity-60">{item.shortName}</div>
+										</td>
+										<td>
+											{#if item.price > 0}
+												{formatRub(item.price)}
+											{:else}
+												<span class="text-error-500 text-xs">нет цены</span>
+											{/if}
+										</td>
+										<td>{item.lotsize}</td>
+										<td>
+											<div>{formatNumber(item.currentQty)}</div>
+											<div class="text-xs opacity-50">
+												{Math.floor(item.currentQty / Math.max(1, item.lotsize))} лот.
+											</div>
+										</td>
+										<td>
+											<input
+												class="input nums w-24"
+												type="number"
+												step="1"
+												min={-maxSellLots(item.ticker)}
+												value={lots}
+												aria-label="Лотов для {item.ticker} (отрицательно — продажа)"
+												oninput={(e) =>
+													onLotsInput(
+														item.ticker,
+														(e.target as HTMLInputElement).value
+													)}
+											/>
+											{#if lots !== 0}
+												<div
+													class="text-xs"
+													class:text-error-500={lots < 0}
+													class:opacity-60={lots > 0}
+												>
+													{lots > 0 ? 'купить' : 'продать'} {Math.abs(lots) * item.lotsize} шт.
+												</div>
+											{/if}
+										</td>
+										<td class:text-error-500={spend < 0}>
+											{formatRub(spend)}
+										</td>
+										<td>
+											<div>{formatPercent(item.targetPercent)}</div>
+											<div class="text-xs opacity-60">
+												→ {formatNumber(newQty)} шт.
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
 					</div>
 
 					{#if result.warnings.length > 0}

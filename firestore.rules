@@ -47,7 +47,7 @@ service cloud.firestore {
 					allow create, update: if isOwner(uid) && isAllowed()
 						&& ticker.size() <= 16
 						&& request.resource.data.keys().hasOnly([
-							'ticker', 'board', 'quantity', 'lotsize', 'targetPercent', 'shortName'
+							'ticker', 'board', 'quantity', 'lotsize', 'targetPercent', 'shortName', 'createdAt'
 						])
 						&& request.resource.data.ticker is string
 						&& request.resource.data.ticker.size() <= 16
@@ -61,7 +61,33 @@ service cloud.firestore {
 						&& request.resource.data.lotsize <= 1000000
 						&& request.resource.data.targetPercent is number
 						&& request.resource.data.targetPercent >= 0
-						&& request.resource.data.targetPercent <= 100;
+						&& request.resource.data.targetPercent <= 100
+						&& request.resource.data.shortName is string
+						&& request.resource.data.shortName.size() <= 200
+						&& request.resource.data.createdAt is timestamp;
+					allow delete: if isOwner(uid) && isAllowed();
+				}
+
+				match /transactions/{txnId} {
+					allow read: if isOwner(uid) && isAllowed();
+					allow create, update: if isOwner(uid) && isAllowed()
+						&& txnId.size() <= 64
+						&& request.resource.data.keys().hasOnly([
+							'ticker', 'kind', 'lots', 'lotsize', 'qty', 'date'
+						])
+						&& request.resource.data.ticker is string
+						&& request.resource.data.ticker.size() <= 16
+						&& request.resource.data.kind in ['initial', 'buy', 'sell']
+						&& request.resource.data.lots is number
+						&& request.resource.data.lots >= 1
+						&& request.resource.data.lots <= 1000000
+						&& request.resource.data.lotsize is number
+						&& request.resource.data.lotsize >= 1
+						&& request.resource.data.lotsize <= 1000000
+						&& request.resource.data.qty is number
+						&& request.resource.data.qty >= -1000000000
+						&& request.resource.data.qty <= 1000000000
+						&& request.resource.data.date is timestamp;
 					allow delete: if isOwner(uid) && isAllowed();
 				}
 			}

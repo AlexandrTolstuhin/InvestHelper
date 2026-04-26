@@ -5,11 +5,13 @@ import {
 	onSnapshot,
 	orderBy,
 	query,
-	setDoc,
+	serverTimestamp,
 	updateDoc,
+	writeBatch,
+	Timestamp,
 	type Unsubscribe
 } from 'firebase/firestore';
-import { getDb } from '$lib/firebase';
+import { describeFirestoreError, getDb } from '$lib/firebase';
 import { authState } from '$lib/stores/auth.svelte';
 
 export interface Holding {
@@ -20,6 +22,7 @@ export interface Holding {
 	lotsize: number;
 	targetPercent: number;
 	shortName: string;
+	createdAt: Date | null;
 }
 
 interface HoldingsState {
@@ -30,6 +33,7 @@ interface HoldingsState {
 
 const states = new Map<string, HoldingsState>();
 const subs = new Map<string, Unsubscribe>();
+const migratedPortfolios = new Set<string>();
 
 function createHoldingsState(): HoldingsState {
 	const s = $state<HoldingsState>({ loading: true, error: null, items: [] });
@@ -60,6 +64,7 @@ export function watchHoldings(portfolioId: string) {
 		(snap) => {
 			s.items = snap.docs.map((d) => {
 				const data = d.data();
+				const ts = data.createdAt as Timestamp | undefined;
 				return {
 					id: d.id,
 					ticker: String(data.ticker ?? d.id),
@@ -67,13 +72,20 @@ export function watchHoldings(portfolioId: string) {
 					quantity: Number(data.quantity ?? 0),
 					lotsize: Number(data.lotsize ?? 1),
 					targetPercent: Number(data.targetPercent ?? 0),
-					shortName: String(data.shortName ?? d.id)
+					shortName: String(data.shortName ?? d.id),
+					createdAt: ts ? ts.toDate() : null
 				};
 			});
 			s.loading = false;
+			if (!migratedPortfolios.has(portfolioId)) {
+				migratedPortfolios.add(portfolioId);
+				migrateHoldings(portfolioId, s.items).catch((err) => {
+					console.warn('migrateHoldings failed', err);
+				});
+			}
 		},
 		(err) => {
-			s.error = err.message;
+			s.error = describeFirestoreError(err);
 			s.loading = false;
 		}
 	);
@@ -101,21 +113,48 @@ export async function upsertHolding(portfolioId: string, input: UpsertHoldingInp
 	const uid = requireUid();
 	const ticker = input.ticker.trim().toUpperCase();
 	if (!ticker) throw new Error('Пустой тикер');
-	const ref = doc(getDb(), 'users', uid, 'portfolios', portfolioId, 'holdings', ticker);
-	await setDoc(ref, {
+
+	const holdingRef = doc(getDb(), 'users', uid, 'portfolios', portfolioId, 'holdings', ticker);
+	const batch = writeBatch(getDb());
+	batch.set(holdingRef, {
 		ticker,
 		board: input.board,
 		quantity: input.quantity,
 		lotsize: input.lotsize,
 		targetPercent: input.targetPercent,
-		shortName: input.shortName
+		shortName: input.shortName,
+		createdAt: serverTimestamp()
 	});
+
+	if (input.quantity > 0) {
+		const lotsize = Math.max(1, input.lotsize || 1);
+		const lots = Math.max(1, Math.floor(input.quantity / lotsize));
+		const txnRef = doc(
+			getDb(),
+			'users',
+			uid,
+			'portfolios',
+			portfolioId,
+			'transactions',
+			`initial-${ticker}`
+		);
+		batch.set(txnRef, {
+			ticker,
+			kind: 'initial',
+			lots,
+			lotsize,
+			qty: input.quantity,
+			date: serverTimestamp()
+		});
+	}
+
+	await batch.commit();
 }
 
 export async function patchHolding(
 	portfolioId: string,
 	ticker: string,
-	patch: Partial<Pick<UpsertHoldingInput, 'quantity' | 'targetPercent' | 'lotsize'>>
+	patch: Partial<Pick<UpsertHoldingInput, 'targetPercent' | 'lotsize'>>
 ) {
 	const uid = requireUid();
 	await updateDoc(doc(getDb(), 'users', uid, 'portfolios', portfolioId, 'holdings', ticker), patch);
@@ -124,6 +163,52 @@ export async function patchHolding(
 export async function removeHolding(portfolioId: string, ticker: string) {
 	const uid = requireUid();
 	await deleteDoc(doc(getDb(), 'users', uid, 'portfolios', portfolioId, 'holdings', ticker));
+}
+
+async function migrateHoldings(portfolioId: string, items: Holding[]) {
+	const needsMigration = items.filter((h) => !h.createdAt);
+	if (needsMigration.length === 0) return;
+	const uid = requireUid();
+	const batch = writeBatch(getDb());
+	for (const h of needsMigration) {
+		const holdingRef = doc(
+			getDb(),
+			'users',
+			uid,
+			'portfolios',
+			portfolioId,
+			'holdings',
+			h.ticker
+		);
+		batch.update(holdingRef, { createdAt: serverTimestamp() });
+
+		if (h.quantity > 0) {
+			const lotsize = Math.max(1, h.lotsize || 1);
+			const lots = Math.max(1, Math.floor(h.quantity / lotsize));
+			const txnRef = doc(
+				getDb(),
+				'users',
+				uid,
+				'portfolios',
+				portfolioId,
+				'transactions',
+				`initial-${h.ticker}`
+			);
+			batch.set(
+				txnRef,
+				{
+					ticker: h.ticker,
+					kind: 'initial',
+					lots,
+					lotsize,
+					qty: h.quantity,
+					date: serverTimestamp()
+				},
+				{ merge: false }
+			);
+		}
+	}
+	await batch.commit();
 }
 
 function requireUid(): string {

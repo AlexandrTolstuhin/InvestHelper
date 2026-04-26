@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { lookupSecurity, searchSecurities, type SecuritySearchHit } from '$lib/api/moex';
+	import { describeFirestoreError } from '$lib/firebase';
 	import { upsertHolding } from '$lib/stores/holdings.svelte';
 
 	let { portfolioId, onAdded } = $props<{
@@ -84,7 +85,7 @@
 			targetPercent = 0;
 			onAdded?.();
 		} catch (err) {
-			error = (err as Error).message;
+			error = describeFirestoreError(err);
 		} finally {
 			submitting = false;
 		}
