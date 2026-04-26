@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
 	import HoldingsHistoryChart from '$lib/components/HoldingsHistoryChart.svelte';
+	import { fetchQuotes, type PriceQuote } from '$lib/api/moex';
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
 		getHoldingsState,
@@ -35,6 +36,7 @@
 	});
 
 	type Period = 'month' | 'year' | 'all';
+	type Mode = 'lots' | 'value';
 
 	const periods: { value: Period; label: string }[] = [
 		{ value: 'month', label: 'Месяц' },
@@ -42,8 +44,124 @@
 		{ value: 'all', label: 'Всё время' }
 	];
 
+	const modes: { value: Mode; label: string }[] = [
+		{ value: 'lots', label: 'Лоты' },
+		{ value: 'value', label: 'Стоимость, ₽' }
+	];
+
+	const PERIOD_VALUES: Period[] = ['month', 'year', 'all'];
+	const MODE_VALUES: Mode[] = ['lots', 'value'];
+	const FILTERS_STORAGE_PREFIX = 'investhelper-history-filters-';
+
+	type SavedFilters = { period: Period; mode: Mode; excludedTickers: string[] };
+
+	function loadFilters(id: string): Partial<SavedFilters> | null {
+		if (typeof window === 'undefined') return null;
+		try {
+			const raw = localStorage.getItem(FILTERS_STORAGE_PREFIX + id);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw) as Partial<SavedFilters>;
+			const result: Partial<SavedFilters> = {};
+			if (parsed.period && PERIOD_VALUES.includes(parsed.period)) {
+				result.period = parsed.period;
+			}
+			if (parsed.mode && MODE_VALUES.includes(parsed.mode)) {
+				result.mode = parsed.mode;
+			}
+			if (Array.isArray(parsed.excludedTickers)) {
+				result.excludedTickers = parsed.excludedTickers.filter(
+					(t): t is string => typeof t === 'string'
+				);
+			}
+			return result;
+		} catch {
+			return null;
+		}
+	}
+
+	function saveFilters(id: string, data: SavedFilters): void {
+		if (typeof window === 'undefined') return;
+		try {
+			localStorage.setItem(FILTERS_STORAGE_PREFIX + id, JSON.stringify(data));
+		} catch {
+			// localStorage может быть недоступен (приватный режим) — фильтры останутся в памяти страницы.
+		}
+	}
+
 	let period = $state<Period>('all');
+	let mode = $state<Mode>('lots');
 	let excludedTickers = $state(new Set<string>());
+
+	$effect(() => {
+		const id = portfolioId;
+		if (!id) return;
+		const saved = loadFilters(id);
+		period = saved?.period ?? 'all';
+		mode = saved?.mode ?? 'lots';
+		excludedTickers = new Set(saved?.excludedTickers ?? []);
+	});
+
+	$effect(() => {
+		const id = portfolioId;
+		if (!id) return;
+		saveFilters(id, {
+			period,
+			mode,
+			excludedTickers: Array.from(excludedTickers)
+		});
+	});
+
+	let quotes = $state<Map<string, PriceQuote>>(new Map());
+	let quotesLoading = $state(false);
+	let quotesError = $state<string | null>(null);
+	let lastQuotedKey = '';
+
+	function inferMarket(board: string): string {
+		if (board.startsWith('TQO') || board.startsWith('TQC') || board.startsWith('TQI'))
+			return 'bonds';
+		return 'shares';
+	}
+
+	$effect(() => {
+		if (mode !== 'value') return;
+		if (holdings.loading || holdings.items.length === 0) return;
+		const key = holdings.items
+			.map((h) => `${h.ticker}|${h.board}`)
+			.sort()
+			.join(',');
+		if (key === lastQuotedKey) return;
+		lastQuotedKey = key;
+		untrack(() => loadQuotes());
+	});
+
+	async function loadQuotes() {
+		if (holdings.items.length === 0) {
+			quotes = new Map();
+			return;
+		}
+		quotesLoading = true;
+		quotesError = null;
+		try {
+			const refs = holdings.items.map((h) => ({
+				ticker: h.ticker,
+				shortName: h.shortName,
+				engine: 'stock',
+				market: inferMarket(h.board),
+				board: h.board
+			}));
+			quotes = await fetchQuotes(refs);
+		} catch (err) {
+			quotesError = (err as Error).message;
+		} finally {
+			quotesLoading = false;
+		}
+	}
+
+	const priceMap = $derived.by(() => {
+		const m = new Map<string, number>();
+		for (const [ticker, q] of quotes) m.set(ticker, q.price);
+		return m;
+	});
 
 	const allTickers = $derived(
 		Array.from(new Set(transactions.items.map((t) => t.ticker))).sort()
@@ -141,6 +259,19 @@
 					{/each}
 				</div>
 
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="text-xs opacity-70">Ось Y</span>
+					{#each modes as m (m.value)}
+						<button
+							type="button"
+							class="btn btn-sm {mode === m.value
+								? 'preset-filled-primary-500'
+								: 'preset-tonal'}"
+							onclick={() => (mode = m.value)}>{m.label}</button
+						>
+					{/each}
+				</div>
+
 				{#if allTickers.length > 1}
 					<div class="flex flex-wrap items-center gap-2">
 						<span class="text-xs opacity-70">Тикеры</span>
@@ -164,7 +295,13 @@
 				{/if}
 			</div>
 
-			<HoldingsHistoryChart transactions={filtered} />
+			{#if mode === 'value' && quotesError}
+				<p class="text-error-500 text-sm">Не удалось загрузить цены: {quotesError}</p>
+			{:else if mode === 'value' && quotesLoading && priceMap.size === 0}
+				<p class="text-sm opacity-70">Загружаем цены…</p>
+			{:else}
+				<HoldingsHistoryChart transactions={filtered} {mode} prices={priceMap} />
+			{/if}
 
 			{#if transactions.items.length === 0}
 				<div class="card preset-tonal p-6 text-center opacity-70">

@@ -1,14 +1,24 @@
 <script lang="ts">
 	import type { Transaction } from '$lib/stores/transactions.svelte';
-	import { formatNumber } from '$lib/utils/format';
+	import { formatNumber, formatRub } from '$lib/utils/format';
+
+	type Mode = 'lots' | 'value';
 
 	interface Props {
 		transactions: Transaction[];
+		mode?: Mode;
+		prices?: Map<string, number>;
 		width?: number;
 		height?: number;
 	}
 
-	let { transactions, width = 720, height = 280 }: Props = $props();
+	let {
+		transactions,
+		mode = 'lots',
+		prices = new Map(),
+		width = 720,
+		height = 280
+	}: Props = $props();
 
 	const padLeft = 44;
 	const padRight = 16;
@@ -28,25 +38,28 @@
 		t: number; // ms
 		qty: number; // штуки (cumulative)
 		lots: number;
+		value: number; // qty * текущая цена, ₽
 	}
 
 	interface Series {
 		ticker: string;
 		points: Point[];
 		color: string;
+		price: number;
 		currentQty: number;
 		currentLots: number;
+		currentValue: number;
 	}
 
 	const seriesData = $derived.by<{
 		series: Series[];
 		minT: number;
 		maxT: number;
-		maxLots: number;
+		maxY: number;
 	}>(() => {
 		const valid = transactions.filter((t) => t.date instanceof Date);
 		if (valid.length === 0) {
-			return { series: [], minT: 0, maxT: 0, maxLots: 0 };
+			return { series: [], minT: 0, maxT: 0, maxY: 0 };
 		}
 		const byTicker = new Map<string, Transaction[]>();
 		for (const txn of valid) {
@@ -58,29 +71,34 @@
 		const now = Date.now();
 		let minT = Infinity;
 		let maxT = -Infinity;
-		let maxLots = 0;
+		let maxY = 0;
 		const series: Series[] = tickers.map((ticker, i) => {
 			const list = (byTicker.get(ticker) ?? [])
 				.slice()
 				.sort((a, b) => (a.date!.getTime() - b.date!.getTime()));
+			const price = prices.get(ticker) ?? 0;
 			const points: Point[] = [];
 			let qty = 0;
 			for (const t of list) {
 				qty += t.qty;
 				const lotsize = Math.max(1, t.lotsize || 1);
 				const lots = qty / lotsize;
-				points.push({ t: t.date!.getTime(), qty, lots });
+				const value = qty * price;
+				points.push({ t: t.date!.getTime(), qty, lots, value });
 				if (t.date!.getTime() < minT) minT = t.date!.getTime();
 				if (t.date!.getTime() > maxT) maxT = t.date!.getTime();
-				if (lots > maxLots) maxLots = lots;
+				const y = mode === 'value' ? value : lots;
+				if (y > maxY) maxY = y;
 			}
 			const last = points[points.length - 1];
 			return {
 				ticker,
 				points,
 				color: colorFor(i, tickers.length),
+				price,
 				currentQty: last?.qty ?? 0,
-				currentLots: last?.lots ?? 0
+				currentLots: last?.lots ?? 0,
+				currentValue: last?.value ?? 0
 			};
 		});
 		if (maxT < now) maxT = now;
@@ -88,8 +106,16 @@
 		if (minT === maxT) {
 			minT -= 24 * 60 * 60 * 1000;
 		}
-		return { series, minT, maxT, maxLots };
+		return { series, minT, maxT, maxY };
 	});
+
+	function yValue(p: Point): number {
+		return mode === 'value' ? p.value : p.lots;
+	}
+
+	function formatYTick(v: number): string {
+		return mode === 'value' ? formatRub(v) : formatNumber(v);
+	}
 
 	function xFor(t: number): number {
 		const { minT, maxT } = seriesData;
@@ -97,10 +123,10 @@
 		return padLeft + ((t - minT) / (maxT - minT)) * innerW;
 	}
 
-	function yFor(lots: number): number {
-		const { maxLots } = seriesData;
-		const top = Math.max(1, maxLots);
-		return padTop + innerH - (lots / top) * innerH;
+	function yFor(v: number): number {
+		const { maxY } = seriesData;
+		const top = Math.max(mode === 'value' ? 1e-9 : 1, maxY);
+		return padTop + innerH - (v / top) * innerH;
 	}
 
 	function pathFor(s: Series): string {
@@ -109,16 +135,16 @@
 		const cmds: string[] = [];
 		// Начинаем от первой точки (initial)
 		const first = s.points[0];
-		cmds.push(`M ${xFor(first.t)} ${yFor(first.lots)}`);
+		cmds.push(`M ${xFor(first.t)} ${yFor(yValue(first))}`);
 		// Step-after: горизонталь до следующей точки времени, потом вертикаль до нового уровня
 		for (let i = 1; i < s.points.length; i++) {
 			const p = s.points[i];
-			cmds.push(`L ${xFor(p.t)} ${yFor(s.points[i - 1].lots)}`);
-			cmds.push(`L ${xFor(p.t)} ${yFor(p.lots)}`);
+			cmds.push(`L ${xFor(p.t)} ${yFor(yValue(s.points[i - 1]))}`);
+			cmds.push(`L ${xFor(p.t)} ${yFor(yValue(p))}`);
 		}
 		// Продлеваем до сегодня по последнему уровню
 		const last = s.points[s.points.length - 1];
-		cmds.push(`L ${xFor(now)} ${yFor(last.lots)}`);
+		cmds.push(`L ${xFor(now)} ${yFor(yValue(last))}`);
 		return cmds.join(' ');
 	}
 
@@ -140,8 +166,8 @@
 	});
 
 	const yTicks = $derived.by(() => {
-		const { maxLots } = seriesData;
-		const top = Math.max(1, Math.ceil(maxLots));
+		const { maxY } = seriesData;
+		const top = mode === 'value' ? Math.max(1, maxY) : Math.max(1, Math.ceil(maxY));
 		const count = 4;
 		const out: number[] = [];
 		for (let i = 0; i <= count; i++) {
@@ -179,7 +205,7 @@
 						text-anchor="end"
 						class="fill-current text-xs opacity-60"
 					>
-						{formatNumber(tick)}
+						{formatYTick(tick)}
 					</text>
 				{/each}
 				{#each xTicks as tick (tick)}
@@ -197,9 +223,11 @@
 			{#each seriesData.series as s (s.ticker)}
 				<path d={pathFor(s)} fill="none" stroke={s.color} stroke-width="2" />
 				{#each s.points as p (p.t)}
-					<circle cx={xFor(p.t)} cy={yFor(p.lots)} r="3" fill={s.color}>
+					<circle cx={xFor(p.t)} cy={yFor(yValue(p))} r="3" fill={s.color}>
 						<title
-							>{s.ticker} — {formatNumber(p.lots)} лот. ({formatNumber(p.qty)} шт.) · {dateFmt.format(
+							>{s.ticker} — {mode === 'value'
+								? formatRub(p.value)
+								: formatNumber(p.lots) + ' лот.'} ({formatNumber(p.qty)} шт.) · {dateFmt.format(
 								new Date(p.t)
 							)}</title
 						>
@@ -217,7 +245,11 @@
 					></span>
 					<span class="font-mono">{s.ticker}</span>
 					<span class="nums opacity-70">
-						{formatNumber(s.currentLots)} лот.
+						{#if mode === 'value'}
+							{s.price > 0 ? formatRub(s.currentValue) : '—'}
+						{:else}
+							{formatNumber(s.currentLots)} лот.
+						{/if}
 					</span>
 				</li>
 			{/each}
