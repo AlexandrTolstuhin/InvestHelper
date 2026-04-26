@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
 	import { page } from '$app/state';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
@@ -94,7 +94,9 @@
 
 <AuthGuard>
 	<section class="space-y-6">
-		<a class="anchor text-sm" href="{base}/portfolio/{portfolioId}">← К портфелю</a>
+		<a class="anchor text-sm" href={resolve('/portfolio/[id]', { id: portfolioId })}
+			>← К портфелю</a
+		>
 		<h1 class="h2">Ребалансировка</h1>
 
 		{#if holdings.loading || quotesLoading}
@@ -118,7 +120,7 @@
 							bind:value={deposit}
 						/>
 					</label>
-					<dl class="space-y-1 text-sm">
+					<dl class="nums space-y-1 text-sm">
 						<div class="flex justify-between">
 							<dt class="opacity-70">Сейчас в портфеле</dt>
 							<dd>{formatRub(result.totalCurrentValue)}</dd>
@@ -138,8 +140,9 @@
 					</dl>
 				</div>
 
-				<div class="overflow-x-auto">
-					<table class="table w-full text-sm">
+				<div>
+					<div class="card border-surface-200-800 overflow-x-auto border p-2">
+					<table class="nums table w-full text-sm">
 						<thead>
 							<tr>
 								<th>Тикер</th>
@@ -182,6 +185,7 @@
 							{/each}
 						</tbody>
 					</table>
+					</div>
 
 					{#if result.warnings.length > 0}
 						<aside class="card preset-tonal-warning mt-4 space-y-1 p-3 text-sm">

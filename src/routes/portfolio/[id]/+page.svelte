@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
 	import { page } from '$app/state';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
 	import AddHoldingForm from '$lib/components/AddHoldingForm.svelte';
 	import { authState } from '$lib/stores/auth.svelte';
@@ -127,13 +127,13 @@
 
 <AuthGuard>
 	<section class="space-y-6">
-		<a class="anchor text-sm" href="{base}/">← Все портфели</a>
-		<header class="flex flex-wrap items-end justify-between gap-3">
+		<a class="anchor text-sm" href={resolve('/')}>← Все портфели</a>
+		<header class="card preset-tonal flex flex-wrap items-end justify-between gap-3 p-4">
 			<div>
 				<h1 class="h2">Портфель</h1>
 				<p class="text-sm opacity-60">ID: <code>{portfolioId}</code></p>
 			</div>
-			<div class="text-right text-sm">
+			<div class="nums text-right text-sm">
 				<div>Стоимость: <strong>{formatRub(totalValue)}</strong></div>
 				<div class="opacity-70">
 					Сумма целей:
@@ -162,13 +162,14 @@
 			<p class="text-error-500">{holdings.error}</p>
 		{:else}
 			<div class="grid gap-6 md:grid-cols-[1fr_320px]">
-				<div class="overflow-x-auto">
+				<div>
 					{#if holdings.items.length === 0}
 						<div class="card preset-tonal p-6 text-center opacity-70">
 							Пока нет бумаг. Добавьте первую справа.
 						</div>
 					{:else}
-						<table class="table w-full text-sm">
+						<div class="card border-surface-200-800 overflow-x-auto border p-2">
+						<table class="nums table w-full text-sm">
 							<thead>
 								<tr>
 									<th>Тикер</th>
@@ -239,6 +240,7 @@
 								{/each}
 							</tbody>
 						</table>
+						</div>
 					{/if}
 					{#if quotesError}
 						<p class="text-error-500 mt-2 text-sm">Котировки: {quotesError}</p>
@@ -247,7 +249,7 @@
 						<div class="mt-4 text-right">
 							<a
 								class="btn preset-filled-primary-500"
-								href="{base}/portfolio/{portfolioId}/rebalance"
+								href={resolve('/portfolio/[id]/rebalance', { id: portfolioId })}
 							>
 								Перейти к ребалансировке →
 							</a>
@@ -255,7 +257,7 @@
 					{/if}
 				</div>
 
-				<aside>
+				<aside class="md:sticky md:top-20 md:self-start">
 					<AddHoldingForm {portfolioId} />
 				</aside>
 			</div>

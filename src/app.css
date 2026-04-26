@@ -1,10 +1,14 @@
+@import '@fontsource-variable/inter';
+
 @import 'tailwindcss';
 
 @import '@skeletonlabs/skeleton';
 @import '@skeletonlabs/skeleton/optional/presets';
-@import '@skeletonlabs/skeleton/themes/cerberus';
+@import '@skeletonlabs/skeleton/themes/wintry';
 
 @source '../node_modules/@skeletonlabs/skeleton-svelte/dist';
+
+@custom-variant dark (&:where([data-mode=dark], [data-mode=dark] *));
 
 html,
 body {
@@ -14,11 +18,15 @@ body {
 body {
 	background-color: var(--color-surface-50);
 	color: var(--color-surface-950);
+	font-family: 'Inter Variable', system-ui, sans-serif;
+	@variant dark {
+		background-color: var(--color-surface-900);
+		color: var(--color-surface-50);
+	}
 }
 
-@media (prefers-color-scheme: dark) {
-	body {
-		background-color: var(--color-surface-950);
-		color: var(--color-surface-50);
+@layer utilities {
+	.nums {
+		font-variant-numeric: tabular-nums;
 	}
 }

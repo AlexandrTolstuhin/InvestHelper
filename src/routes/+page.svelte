@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
 	import { authState } from '$lib/stores/auth.svelte';
@@ -34,7 +34,7 @@
 		try {
 			const id = await createPortfolio(name);
 			newName = '';
-			await goto(`${base}/portfolio/${id}`);
+			await goto(resolve('/portfolio/[id]', { id }));
 		} catch (err) {
 			createError = (err as Error).message;
 		} finally {
@@ -60,7 +60,7 @@
 			<h1 class="h2">Портфели</h1>
 		</header>
 
-		<form class="flex flex-wrap gap-2" onsubmit={onCreate}>
+		<form class="card preset-tonal flex flex-wrap gap-2 p-4" onsubmit={onCreate}>
 			<input
 				class="input flex-1 min-w-48"
 				type="text"
@@ -93,8 +93,13 @@
 		{:else}
 			<ul class="space-y-2">
 				{#each portfoliosState.items as p (p.id)}
-					<li class="card preset-tonal flex items-center justify-between gap-3 p-4">
-						<a class="anchor flex-1 text-base font-medium" href="{base}/portfolio/{p.id}">
+					<li
+					class="card preset-tonal border-surface-200-800 hover:bg-surface-100-900 flex items-center justify-between gap-3 border p-4 transition"
+				>
+						<a
+						class="anchor flex-1 text-base font-medium"
+						href={resolve('/portfolio/[id]', { id: p.id })}
+					>
 							{p.name}
 						</a>
 						<button
