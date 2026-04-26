@@ -7,7 +7,10 @@
 		size?: number;
 	}
 
-	let { rows, size = 280 }: Props = $props();
+	let { rows, size: sizeProp }: Props = $props();
+
+	let containerWidth = $state(640);
+	const size = $derived(sizeProp ?? (containerWidth < 480 ? 220 : 280));
 
 	// Палитра строится на лету: равномерный шаг по hue в OKLCH даёт
 	// максимально различимые цвета при любом числе тикеров и работает
@@ -56,7 +59,10 @@
 	const targetSegments = $derived(buildSegments(colored, (r) => r.targetPercent));
 </script>
 
-<div class="card preset-tonal border-surface-200-800 flex flex-wrap items-center gap-6 border p-4">
+<div
+	class="card preset-tonal border-surface-200-800 flex flex-col items-center gap-4 border p-4 sm:flex-row sm:gap-6"
+	bind:clientWidth={containerWidth}
+>
 	<svg
 		viewBox="0 0 {size} {size}"
 		width={size}
@@ -143,7 +149,7 @@
 		</text>
 	</svg>
 
-	<ul class="flex-1 min-w-48 space-y-1 text-sm">
+	<ul class="w-full flex-1 space-y-1 text-sm sm:min-w-48">
 		{#each colored as c (c.row.ticker)}
 			{@const delta = c.row.deviation}
 			<li class="flex items-center gap-2">

@@ -59,7 +59,7 @@
 </script>
 
 {#if mode === 'idle'}
-	<div class="flex gap-1">
+	<div class="flex flex-wrap gap-1">
 		<button
 			class="btn btn-sm preset-tonal-primary"
 			type="button"
@@ -81,7 +81,7 @@
 {:else}
 	<form class="flex flex-wrap items-center gap-1" onsubmit={submit}>
 		<input
-			class="input nums w-16"
+			class="input nums w-20"
 			type="number"
 			min="1"
 			max={mode === 'sell' ? maxSellLots : undefined}

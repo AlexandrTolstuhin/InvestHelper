@@ -22,8 +22,10 @@
 	<header
 		class="bg-surface-50/80 dark:bg-surface-900/80 border-surface-200-800 sticky top-0 z-10 border-b backdrop-blur"
 	>
-		<div class="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
-			<a href={resolve('/')} class="text-lg font-semibold tracking-tight">InvestHelper</a>
+		<div class="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 px-3 py-3 sm:px-4">
+			<a href={resolve('/')} class="text-base font-semibold tracking-tight sm:text-lg"
+				>InvestHelper</a
+			>
 			<nav class="flex items-center gap-3 text-sm">
 				{#if authState.status === 'authorized' || authState.status === 'denied'}
 					<span class="hidden opacity-70 sm:inline">{authState.user?.email}</span>
@@ -79,7 +81,7 @@
 		</div>
 	</header>
 
-	<main class="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+	<main class="mx-auto w-full max-w-6xl flex-1 px-3 py-4 sm:px-4 sm:py-6">
 		{@render children()}
 	</main>
 

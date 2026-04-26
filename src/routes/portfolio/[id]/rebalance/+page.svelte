@@ -174,6 +174,14 @@
 			applyError = 'Нет ненулевых операций для применения';
 			return;
 		}
+		const lines = ['Применить операции?'];
+		if (summary.buyCount > 0) {
+			lines.push(`Покупка: ${summary.buyCount} позиц. на ${formatRub(summary.buyValue)}`);
+		}
+		if (summary.sellCount > 0) {
+			lines.push(`Продажа: ${summary.sellCount} позиц. на ${formatRub(summary.sellValue)}`);
+		}
+		if (!confirm(lines.join('\n'))) return;
 		applying = true;
 		try {
 			await applyRebalance(portfolioId, ops);
@@ -254,7 +262,7 @@
 				</div>
 
 				<div>
-					<div class="card border-surface-200-800 overflow-x-auto border p-2">
+					<div class="card border-surface-200-800 hidden overflow-x-auto border p-2 sm:block">
 						<table class="nums table w-full text-sm">
 							<thead>
 								<tr>
@@ -329,6 +337,75 @@
 							</tbody>
 						</table>
 					</div>
+
+					<ul class="space-y-3 sm:hidden">
+						{#each itemsToShow as item (item.ticker)}
+							{@const lots = effectiveLots(item.ticker, item.lotsToBuy)}
+							{@const spend = lots * item.lotsize * item.price}
+							{@const newQty = item.currentQty + lots * item.lotsize}
+							<li
+								class="card border-surface-200-800 space-y-3 border p-3"
+								class:opacity-50={lots === 0 && item.targetPercent === 0}
+							>
+								<div class="flex items-start justify-between gap-2">
+									<div>
+										<div class="font-mono text-base">{item.ticker}</div>
+										<div class="text-xs opacity-60">{item.shortName}</div>
+									</div>
+									<div class="nums text-right text-sm">
+										{#if item.price > 0}
+											<div>{formatRub(item.price)}</div>
+										{:else}
+											<div class="text-error-500 text-xs">нет цены</div>
+										{/if}
+										<div class="text-xs opacity-50">лот: {item.lotsize}</div>
+									</div>
+								</div>
+
+								<dl class="nums grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+									<dt class="opacity-60">Сейчас</dt>
+									<dd class="text-right">
+										{formatNumber(item.currentQty)} шт.
+										<span class="text-xs opacity-50">
+											({Math.floor(item.currentQty / Math.max(1, item.lotsize))} лот.)
+										</span>
+									</dd>
+
+									<dt class="opacity-60">Цель</dt>
+									<dd class="text-right">
+										{formatPercent(item.targetPercent)}
+										<span class="text-xs opacity-60">→ {formatNumber(newQty)} шт.</span>
+									</dd>
+
+									<dt class="opacity-60">Стоимость</dt>
+									<dd class="text-right" class:text-error-500={spend < 0}>{formatRub(spend)}</dd>
+								</dl>
+
+								<label class="space-y-1">
+									<span class="text-xs opacity-70">Лотов (− продажа / + покупка)</span>
+									<input
+										class="input nums w-full"
+										type="number"
+										step="1"
+										min={-maxSellLots(item.ticker)}
+										value={lots}
+										aria-label="Лотов для {item.ticker} (отрицательно — продажа)"
+										oninput={(e) =>
+											onLotsInput(item.ticker, (e.target as HTMLInputElement).value)}
+									/>
+									{#if lots !== 0}
+										<div
+											class="text-xs"
+											class:text-error-500={lots < 0}
+											class:opacity-60={lots > 0}
+										>
+											{lots > 0 ? 'купить' : 'продать'} {Math.abs(lots) * item.lotsize} шт.
+										</div>
+									{/if}
+								</label>
+							</li>
+						{/each}
+					</ul>
 
 					{#if result.warnings.length > 0}
 						<aside class="card preset-tonal-warning mt-4 space-y-1 p-3 text-sm">

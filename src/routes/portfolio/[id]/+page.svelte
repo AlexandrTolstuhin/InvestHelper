@@ -168,7 +168,7 @@
 								<AllocationDonut rows={allocationRows} />
 							</div>
 						{/if}
-						<div class="card border-surface-200-800 overflow-x-auto border p-2">
+						<div class="card border-surface-200-800 hidden overflow-x-auto border p-2 sm:block">
 						<table class="nums table w-full text-sm">
 							<thead>
 								<tr>
@@ -245,6 +245,80 @@
 							</tbody>
 						</table>
 						</div>
+
+						<ul class="space-y-3 sm:hidden">
+							{#each enriched as h (h.ticker)}
+								<li class="card border-surface-200-800 space-y-3 border p-3">
+									<div class="flex items-start justify-between gap-2">
+										<div>
+											<div class="font-mono text-base">{h.ticker}</div>
+											<div class="text-xs opacity-60">{h.shortName}</div>
+										</div>
+										<button
+											class="btn-icon btn-icon-sm preset-tonal-error"
+											type="button"
+											aria-label="Удалить {h.ticker}"
+											onclick={() => onRemove(h.ticker)}>×</button
+										>
+									</div>
+
+									<dl class="nums grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+										<dt class="opacity-60">Цена</dt>
+										<dd class="text-right">
+											{#if h.price > 0}
+												{formatRub(h.price)}
+												{#if h.quote && h.quote.source !== 'LAST'}
+													<span class="text-xs opacity-50">({h.quote.source})</span>
+												{/if}
+											{:else if quotesLoading}
+												<span class="opacity-50">…</span>
+											{:else}
+												<span class="text-error-500 text-xs">нет цены</span>
+											{/if}
+										</dd>
+
+										<dt class="opacity-60">Кол-во</dt>
+										<dd class="text-right">
+											{formatNumber(h.quantity)}
+											<span class="text-xs opacity-50">
+												({Math.floor(h.quantity / Math.max(1, h.lotsize))} × {h.lotsize})
+											</span>
+										</dd>
+
+										<dt class="opacity-60">Стоимость</dt>
+										<dd class="text-right">{formatRub(h.value)}</dd>
+
+										<dt class="opacity-60">Сейчас</dt>
+										<dd class="text-right">
+											{totalValue > 0 ? formatPercent((h.value / totalValue) * 100) : '—'}
+										</dd>
+									</dl>
+
+									<label class="flex items-center justify-between gap-2 text-sm">
+										<span class="opacity-70">Цель, %</span>
+										<input
+											class="input nums w-24 text-right"
+											type="number"
+											min="0"
+											max="100"
+											step="0.01"
+											value={h.targetPercent}
+											onchange={(e) =>
+												onTargetChange(h.ticker, (e.target as HTMLInputElement).value)}
+										/>
+									</label>
+
+									<div class="border-surface-200-800 border-t pt-2">
+										<TradeButtons
+											{portfolioId}
+											ticker={h.ticker}
+											quantity={h.quantity}
+											lotsize={h.lotsize}
+										/>
+									</div>
+								</li>
+							{/each}
+						</ul>
 					{/if}
 					{#if quotesError}
 						<p class="text-error-500 mt-2 text-sm">Котировки: {quotesError}</p>

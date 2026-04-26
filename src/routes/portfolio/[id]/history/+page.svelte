@@ -320,7 +320,7 @@
 								<th>Тикер</th>
 								<th>Тип</th>
 								<th>Лотов</th>
-								<th>Штук</th>
+								<th class="hidden sm:table-cell">Штук</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -334,7 +334,7 @@
 									<td class:text-error-500={t.kind === 'sell'}>
 										{t.kind === 'sell' ? '−' : ''}{formatNumber(t.lots)}
 									</td>
-									<td class:text-error-500={t.qty < 0}>
+									<td class="hidden sm:table-cell" class:text-error-500={t.qty < 0}>
 										{formatNumber(Math.abs(t.qty))}
 									</td>
 								</tr>

@@ -8,7 +8,6 @@
 		transactions: Transaction[];
 		mode?: Mode;
 		prices?: Map<string, number>;
-		width?: number;
 		height?: number;
 	}
 
@@ -16,14 +15,16 @@
 		transactions,
 		mode = 'lots',
 		prices = new Map(),
-		width = 720,
 		height = 280
 	}: Props = $props();
 
-	const padLeft = 44;
-	const padRight = 16;
-	const padTop = 16;
-	const padBottom = 28;
+	let containerWidth = $state(720);
+	const width = $derived(Math.max(320, containerWidth));
+	const isNarrow = $derived(width < 480);
+	const padLeft = $derived(isNarrow ? 36 : 44);
+	const padRight = 12;
+	const padTop = 12;
+	const padBottom = $derived(isNarrow ? 24 : 28);
 	const innerW = $derived(width - padLeft - padRight);
 	const innerH = $derived(height - padTop - padBottom);
 
@@ -157,12 +158,18 @@
 	const xTicks = $derived.by(() => {
 		const { minT, maxT } = seriesData;
 		if (!Number.isFinite(minT) || !Number.isFinite(maxT) || maxT <= minT) return [] as number[];
-		const count = 4;
+		const count = isNarrow ? 2 : 4;
 		const out: number[] = [];
 		for (let i = 0; i <= count; i++) {
 			out.push(minT + ((maxT - minT) * i) / count);
 		}
 		return out;
+	});
+
+	const dateFmtShort = new Intl.DateTimeFormat('ru-RU', {
+		day: '2-digit',
+		month: '2-digit',
+		year: '2-digit'
 	});
 
 	const yTicks = $derived.by(() => {
@@ -180,7 +187,7 @@
 {#if seriesData.series.length === 0}
 	<div class="card preset-tonal p-4 text-sm opacity-70">Пока нет операций для построения графика.</div>
 {:else}
-	<div class="card border-surface-200-800 border p-3">
+	<div class="card border-surface-200-800 border p-3" bind:clientWidth={containerWidth}>
 		<svg
 			viewBox="0 0 {width} {height}"
 			width="100%"
@@ -203,7 +210,8 @@
 						x={padLeft - 6}
 						y={yFor(tick) + 3}
 						text-anchor="end"
-						class="fill-current text-xs opacity-60"
+						class="fill-current opacity-60"
+						style:font-size={isNarrow ? '10px' : '12px'}
 					>
 						{formatYTick(tick)}
 					</text>
@@ -213,9 +221,10 @@
 						x={xFor(tick)}
 						y={height - 8}
 						text-anchor="middle"
-						class="fill-current text-xs opacity-60"
+						class="fill-current opacity-60"
+						style:font-size={isNarrow ? '10px' : '12px'}
 					>
-						{dateFmt.format(new Date(tick))}
+						{(isNarrow ? dateFmtShort : dateFmt).format(new Date(tick))}
 					</text>
 				{/each}
 			</g>
