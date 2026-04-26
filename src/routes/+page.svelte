@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
+	import DeviationBadge from '$lib/components/DeviationBadge.svelte';
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
 		cleanup,
@@ -11,6 +12,11 @@
 		portfoliosState,
 		watchPortfolios
 	} from '$lib/stores/portfolios.svelte';
+	import {
+		clearSummaries,
+		summariesState,
+		watchSummaries
+	} from '$lib/stores/portfolio-summaries.svelte';
 
 	let newName = $state('');
 	let creating = $state(false);
@@ -23,7 +29,16 @@
 		}
 	});
 
-	onDestroy(cleanup);
+	$effect(() => {
+		if (authState.status === 'authorized' && !portfoliosState.loading) {
+			watchSummaries(portfoliosState.items);
+		}
+	});
+
+	onDestroy(() => {
+		cleanup();
+		clearSummaries();
+	});
 
 	async function onCreate(e: Event) {
 		e.preventDefault();
@@ -97,10 +112,13 @@
 					class="card preset-tonal border-surface-200-800 hover:bg-surface-100-900 flex items-center justify-between gap-3 border p-4 transition"
 				>
 						<a
-						class="anchor flex-1 text-base font-medium"
+						class="anchor flex flex-1 items-center gap-2 text-base font-medium"
 						href={resolve('/portfolio/[id]', { id: p.id })}
 					>
-							{p.name}
+							<span class="flex-1">{p.name}</span>
+							<DeviationBadge
+								deviation={summariesState.map.get(p.id)?.maxDeviation ?? null}
+							/>
 						</a>
 						<button
 							class="btn btn-sm preset-tonal-error"

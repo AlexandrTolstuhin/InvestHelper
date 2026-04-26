@@ -66,8 +66,8 @@ interface BoardRow {
 }
 
 // Получить базовое описание бумаги: shortname и каноническую RUB-доску.
-// Кешируется на 1 час: метаданные бумаги практически не меняются.
-const LOOKUP_TTL_MS = 60 * 60_000;
+// Метаданные практически не меняются — храним сутки и переживаем перезагрузки страницы.
+const LOOKUP_TTL_MS = 24 * 60 * 60_000;
 const lookupCache = new Map<string, { value: SecurityRef; fetchedAt: number }>();
 const lookupInflight = new Map<string, Promise<SecurityRef>>();
 
@@ -84,6 +84,7 @@ export async function lookupSecurity(ticker: string): Promise<SecurityRef> {
 		try {
 			const v = await lookupSecurityImpl(key);
 			lookupCache.set(key, { value: v, fetchedAt: Date.now() });
+			saveToStorage();
 			return v;
 		} finally {
 			lookupInflight.delete(key);
@@ -204,16 +205,94 @@ interface MarketDataRow {
 }
 
 const cache = new Map<string, PriceQuote>();
-const CACHE_TTL_MS = 60_000;
+// Котировки MOEX обновляются с задержкой ~15 мин, чаще раз в 10 мин ходить смысла нет.
+const CACHE_TTL_MS = 10 * 60_000;
+
+// Персистим кэш котировок и метаданных в localStorage одним JSON-блобом —
+// при перезагрузке страницы цены появляются мгновенно из кэша.
+const STORAGE_KEY = 'moex-cache-v1';
+const STORAGE_VERSION = 1;
+const STORAGE_MAX_QUOTES = 200;
+
+interface StorageBlob {
+	v: number;
+	quotes: PriceQuote[];
+	lookups: Array<[string, SecurityRef, number]>;
+}
+
+function loadFromStorage() {
+	if (typeof window === 'undefined') return;
+	try {
+		const raw = window.localStorage.getItem(STORAGE_KEY);
+		if (!raw) return;
+		const parsed = JSON.parse(raw) as StorageBlob;
+		if (!parsed || parsed.v !== STORAGE_VERSION) return;
+		const now = Date.now();
+		for (const q of parsed.quotes ?? []) {
+			if (q && typeof q.fetchedAt === 'number' && now - q.fetchedAt < CACHE_TTL_MS) {
+				cache.set(q.ticker, q);
+			}
+		}
+		for (const entry of parsed.lookups ?? []) {
+			if (!Array.isArray(entry) || entry.length !== 3) continue;
+			const [key, value, fetchedAt] = entry;
+			if (typeof fetchedAt === 'number' && now - fetchedAt < LOOKUP_TTL_MS) {
+				lookupCache.set(key, { value, fetchedAt });
+			}
+		}
+	} catch {
+		// Битый JSON / отказ доступа к localStorage — продолжаем с пустым кэшем.
+	}
+}
+
+function saveToStorage() {
+	if (typeof window === 'undefined') return;
+	try {
+		// Эвикция: если котировок накопилось больше потолка, выкидываем самые старые.
+		if (cache.size > STORAGE_MAX_QUOTES) {
+			const sorted = Array.from(cache.values()).sort((a, b) => b.fetchedAt - a.fetchedAt);
+			cache.clear();
+			for (const q of sorted.slice(0, STORAGE_MAX_QUOTES)) {
+				cache.set(q.ticker, q);
+			}
+		}
+		const blob: StorageBlob = {
+			v: STORAGE_VERSION,
+			quotes: Array.from(cache.values()),
+			lookups: Array.from(lookupCache.entries()).map(
+				([k, v]) => [k, v.value, v.fetchedAt] as [string, SecurityRef, number]
+			)
+		};
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
+	} catch {
+		// Quota exceeded или приватный режим — игнорируем, in-memory кэш остаётся рабочим.
+	}
+}
+
+loadFromStorage();
 
 export function clearQuotesCache() {
 	cache.clear();
+	if (typeof window !== 'undefined') {
+		try {
+			window.localStorage.removeItem(STORAGE_KEY);
+		} catch {
+			/* noop */
+		}
+	}
 }
 
 export function clearAllMoexCaches() {
 	cache.clear();
 	searchCache.clear();
 	lookupCache.clear();
+	if (typeof window !== 'undefined') {
+		try {
+			window.localStorage.removeItem(STORAGE_KEY);
+		} catch {
+			/* noop */
+		}
+	}
 }
 
 // Группируем тикеры по доске (на одной доске — один запрос),
@@ -268,6 +347,8 @@ export async function fetchQuotes(refs: SecurityRef[]): Promise<Map<string, Pric
 			}
 		})
 	);
+
+	if (toFetch.length > 0) saveToStorage();
 
 	return result;
 }

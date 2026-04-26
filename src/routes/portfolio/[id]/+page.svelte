@@ -4,6 +4,7 @@
 	import { resolve } from '$app/paths';
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
 	import AddHoldingForm from '$lib/components/AddHoldingForm.svelte';
+	import AllocationDonut from '$lib/components/AllocationDonut.svelte';
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
 		getHoldingsState,
@@ -13,6 +14,7 @@
 		watchHoldings
 	} from '$lib/stores/holdings.svelte';
 	import { fetchQuotes, type PriceQuote } from '$lib/api/moex';
+	import { computeAllocations } from '$lib/utils/allocation';
 	import { formatNumber, formatPercent, formatRub } from '$lib/utils/format';
 
 	const portfolioId = $derived(page.params.id ?? '');
@@ -94,6 +96,7 @@
 
 	const totalValue = $derived(enriched.reduce((s, h) => s + h.value, 0));
 	const totalTarget = $derived(holdings.items.reduce((s, h) => s + h.targetPercent, 0));
+	const allocationRows = $derived(computeAllocations(holdings.items, quotes).rows);
 
 	async function onQtyChange(ticker: string, raw: string) {
 		const v = Number(raw);
@@ -168,6 +171,11 @@
 							Пока нет бумаг. Добавьте первую справа.
 						</div>
 					{:else}
+						{#if totalValue > 0}
+							<div class="mb-4">
+								<AllocationDonut rows={allocationRows} />
+							</div>
+						{/if}
 						<div class="card border-surface-200-800 overflow-x-auto border p-2">
 						<table class="nums table w-full text-sm">
 							<thead>
