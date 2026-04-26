@@ -1,0 +1,75 @@
+rules_version = '2';
+
+service cloud.firestore {
+	match /databases/{database}/documents {
+
+		function signedIn() {
+			return request.auth != null;
+		}
+
+		function isOwner(uid) {
+			return signedIn() && request.auth.uid == uid;
+		}
+
+		// Allowlist: коллекция документов, ID которых равен email пользователя.
+		// Заполняется владельцем приложения вручную через Firebase Console.
+		// Клиент может только проверять существование своего документа.
+		match /allowedEmails/{email} {
+			allow get: if signedIn()
+				&& request.auth.token.email != null
+				&& (request.auth.token.email == email
+					|| request.auth.token.email.lower() == email);
+			allow list, write: if false;
+		}
+
+		function isAllowed() {
+			return request.auth.token.email != null
+				&& (
+					exists(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email))
+					|| exists(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email.lower()))
+				);
+		}
+
+		match /users/{uid} {
+			allow read, write: if isOwner(uid) && isAllowed();
+
+			match /portfolios/{portfolioId} {
+				allow read: if isOwner(uid) && isAllowed();
+				allow create, update: if isOwner(uid) && isAllowed()
+					&& request.resource.data.keys().hasOnly(['name', 'createdAt', 'updatedAt'])
+					&& request.resource.data.name is string
+					&& request.resource.data.name.size() >= 1
+					&& request.resource.data.name.size() <= 100;
+				allow delete: if isOwner(uid) && isAllowed();
+
+				match /holdings/{ticker} {
+					allow read: if isOwner(uid) && isAllowed();
+					allow create, update: if isOwner(uid) && isAllowed()
+						&& ticker.size() <= 16
+						&& request.resource.data.keys().hasOnly([
+							'ticker', 'board', 'quantity', 'lotsize', 'targetPercent', 'shortName'
+						])
+						&& request.resource.data.ticker is string
+						&& request.resource.data.ticker.size() <= 16
+						&& request.resource.data.board is string
+						&& request.resource.data.board.size() <= 16
+						&& request.resource.data.quantity is number
+						&& request.resource.data.quantity >= 0
+						&& request.resource.data.quantity <= 1000000000
+						&& request.resource.data.lotsize is number
+						&& request.resource.data.lotsize >= 1
+						&& request.resource.data.lotsize <= 1000000
+						&& request.resource.data.targetPercent is number
+						&& request.resource.data.targetPercent >= 0
+						&& request.resource.data.targetPercent <= 100;
+					allow delete: if isOwner(uid) && isAllowed();
+				}
+			}
+		}
+
+		// Всё остальное запрещено по умолчанию.
+		match /{document=**} {
+			allow read, write: if false;
+		}
+	}
+}
