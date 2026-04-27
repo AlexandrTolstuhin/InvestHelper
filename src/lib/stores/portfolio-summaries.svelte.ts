@@ -9,6 +9,7 @@ import type { Portfolio } from '$lib/stores/portfolios.svelte';
 
 export interface PortfolioSummary {
 	maxDeviation: number;
+	totalValue: number;
 	computedAt: number;
 }
 
@@ -113,6 +114,7 @@ async function recompute(portfolios: Portfolio[]) {
 				}
 				summariesState.map.set(p.id, {
 					maxDeviation: maxAbsDeviation(rows),
+					totalValue,
 					computedAt: Date.now()
 				});
 			}

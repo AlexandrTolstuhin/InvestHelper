@@ -5,6 +5,7 @@
 	import AuthGuard from '$lib/components/AuthGuard.svelte';
 	import DeviationBadge from '$lib/components/DeviationBadge.svelte';
 	import { describeFirestoreError } from '$lib/firebase';
+	import { formatRub } from '$lib/utils/format';
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
 		cleanup,
@@ -109,6 +110,7 @@
 		{:else}
 			<ul class="space-y-2">
 				{#each portfoliosState.items as p (p.id)}
+					{@const summary = summariesState.map.get(p.id)}
 					<li
 					class="card preset-tonal border-surface-200-800 hover:bg-surface-100-900 flex items-center justify-between gap-3 border p-4 transition"
 				>
@@ -117,9 +119,10 @@
 						href={resolve('/portfolio/[id]', { id: p.id })}
 					>
 							<span class="flex-1">{p.name}</span>
-							<DeviationBadge
-								deviation={summariesState.map.get(p.id)?.maxDeviation ?? null}
-							/>
+							{#if summary && summary.totalValue > 0}
+								<span class="nums text-sm opacity-70">{formatRub(summary.totalValue)}</span>
+							{/if}
+							<DeviationBadge deviation={summary?.maxDeviation ?? null} />
 						</a>
 						<button
 							class="btn btn-sm preset-tonal-error"
