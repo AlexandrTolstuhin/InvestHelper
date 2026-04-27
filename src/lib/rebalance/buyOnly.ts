@@ -135,6 +135,7 @@ export const buyOnlyStrategy: RebalanceStrategy = {
 			return {
 				ticker: r.ref.ticker,
 				shortName: r.ref.shortName,
+				displayName: r.ref.displayName ?? r.ref.shortName,
 				price: r.ref.price,
 				lotsize: r.ref.lotsize,
 				currentQty: r.ref.quantity,

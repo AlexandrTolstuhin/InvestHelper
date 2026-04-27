@@ -7,6 +7,7 @@
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
 		getHoldingsState,
+		holdingDisplayName,
 		unwatchHoldings,
 		watchHoldings
 	} from '$lib/stores/holdings.svelte';
@@ -85,6 +86,7 @@
 			return {
 				ticker: h.ticker,
 				shortName: h.shortName,
+				displayName: holdingDisplayName(h),
 				price: q?.price ?? 0,
 				lotsize: q?.lotsize ?? h.lotsize ?? 1,
 				quantity: h.quantity,
@@ -283,7 +285,7 @@
 									<tr class:opacity-50={lots === 0 && item.targetPercent === 0}>
 										<td>
 											<div class="font-mono">{item.ticker}</div>
-											<div class="text-xs opacity-60">{item.shortName}</div>
+											<div class="text-xs opacity-60">{item.displayName}</div>
 										</td>
 										<td>
 											{#if item.price > 0}
@@ -350,7 +352,7 @@
 								<div class="flex items-start justify-between gap-2">
 									<div>
 										<div class="font-mono text-base">{item.ticker}</div>
-										<div class="text-xs opacity-60">{item.shortName}</div>
+										<div class="text-xs opacity-60">{item.displayName}</div>
 									</div>
 									<div class="nums text-right text-sm">
 										{#if item.price > 0}

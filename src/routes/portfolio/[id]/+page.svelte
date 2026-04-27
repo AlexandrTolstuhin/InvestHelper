@@ -10,6 +10,7 @@
 	import { authState } from '$lib/stores/auth.svelte';
 	import {
 		getHoldingsState,
+		holdingDisplayName,
 		patchHolding,
 		removeHolding,
 		unwatchHoldings,
@@ -110,6 +111,29 @@
 		}
 	}
 
+	let editingNameTicker = $state<string | null>(null);
+	let editingNameValue = $state('');
+
+	function startEditName(ticker: string, current: string | null) {
+		editingNameTicker = ticker;
+		editingNameValue = current ?? '';
+	}
+
+	function cancelEditName() {
+		editingNameTicker = null;
+		editingNameValue = '';
+	}
+
+	async function commitEditName(ticker: string) {
+		const next = editingNameValue.trim().slice(0, 100);
+		try {
+			await patchHolding(portfolioId, ticker, { customName: next || null });
+			cancelEditName();
+		} catch (e) {
+			alert(describeFirestoreError(e));
+		}
+	}
+
 	async function onRemove(ticker: string) {
 		if (!confirm(`Удалить ${ticker} из портфеля?`)) return;
 		try {
@@ -188,7 +212,42 @@
 									<tr>
 										<td>
 											<div class="font-mono">{h.ticker}</div>
-											<div class="text-xs opacity-60">{h.shortName}</div>
+											{#if editingNameTicker === h.ticker}
+												<div class="flex items-center gap-1">
+													<input
+														class="input input-sm w-40 text-xs"
+														type="text"
+														maxlength="100"
+														placeholder={h.shortName}
+														bind:value={editingNameValue}
+														onkeydown={(e) => {
+															if (e.key === 'Enter') commitEditName(h.ticker);
+															else if (e.key === 'Escape') cancelEditName();
+														}}
+													/>
+													<button
+														type="button"
+														class="btn btn-sm preset-tonal-success"
+														onclick={() => commitEditName(h.ticker)}
+														aria-label="Сохранить">✓</button
+													>
+													<button
+														type="button"
+														class="btn btn-sm preset-tonal"
+														onclick={cancelEditName}
+														aria-label="Отмена">×</button
+													>
+												</div>
+											{:else}
+												<button
+													type="button"
+													class="text-xs opacity-60 hover:opacity-100 hover:underline"
+													title={h.customName ? `MOEX: ${h.shortName} — нажмите, чтобы изменить` : 'Задать своё имя'}
+													onclick={() => startEditName(h.ticker, h.customName)}
+												>
+													{holdingDisplayName(h)}
+												</button>
+											{/if}
 										</td>
 										<td>
 											{#if h.price > 0}
@@ -250,9 +309,43 @@
 							{#each enriched as h (h.ticker)}
 								<li class="card border-surface-200-800 space-y-3 border p-3">
 									<div class="flex items-start justify-between gap-2">
-										<div>
+										<div class="min-w-0 flex-1">
 											<div class="font-mono text-base">{h.ticker}</div>
-											<div class="text-xs opacity-60">{h.shortName}</div>
+											{#if editingNameTicker === h.ticker}
+												<div class="mt-1 flex items-center gap-1">
+													<input
+														class="input input-sm w-full text-xs"
+														type="text"
+														maxlength="100"
+														placeholder={h.shortName}
+														bind:value={editingNameValue}
+														onkeydown={(e) => {
+															if (e.key === 'Enter') commitEditName(h.ticker);
+															else if (e.key === 'Escape') cancelEditName();
+														}}
+													/>
+													<button
+														type="button"
+														class="btn btn-sm preset-tonal-success"
+														onclick={() => commitEditName(h.ticker)}
+														aria-label="Сохранить">✓</button
+													>
+													<button
+														type="button"
+														class="btn btn-sm preset-tonal"
+														onclick={cancelEditName}
+														aria-label="Отмена">×</button
+													>
+												</div>
+											{:else}
+												<button
+													type="button"
+													class="text-xs opacity-60 hover:opacity-100 hover:underline"
+													onclick={() => startEditName(h.ticker, h.customName)}
+												>
+													{holdingDisplayName(h)}
+												</button>
+											{/if}
 										</div>
 										<button
 											class="btn-icon btn-icon-sm preset-tonal-error"

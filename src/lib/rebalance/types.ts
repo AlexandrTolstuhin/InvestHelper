@@ -6,6 +6,7 @@ export interface RebalanceInput {
 export interface RebalanceHolding {
 	ticker: string;
 	shortName: string;
+	displayName: string;
 	price: number;
 	lotsize: number;
 	quantity: number;
@@ -15,6 +16,7 @@ export interface RebalanceHolding {
 export interface RebalanceItem {
 	ticker: string;
 	shortName: string;
+	displayName: string;
 	price: number;
 	lotsize: number;
 	currentQty: number;

@@ -66,6 +66,10 @@ async function recompute(portfolios: Portfolio[]) {
 								lotsize: Number(data.lotsize ?? 1),
 								targetPercent: Number(data.targetPercent ?? 0),
 								shortName: String(data.shortName ?? d.id),
+								customName:
+									typeof data.customName === 'string' && data.customName.trim()
+										? String(data.customName)
+										: null,
 								createdAt: ts ? ts.toDate() : null
 							};
 						});

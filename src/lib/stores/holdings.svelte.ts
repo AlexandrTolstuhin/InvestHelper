@@ -22,7 +22,16 @@ export interface Holding {
 	lotsize: number;
 	targetPercent: number;
 	shortName: string;
+	customName: string | null;
 	createdAt: Date | null;
+}
+
+export function holdingDisplayName(
+	h: Pick<Holding, 'customName' | 'shortName' | 'ticker'>
+): string {
+	const custom = h.customName?.trim();
+	if (custom) return custom;
+	return h.shortName || h.ticker;
 }
 
 interface HoldingsState {
@@ -73,6 +82,10 @@ export function watchHoldings(portfolioId: string) {
 					lotsize: Number(data.lotsize ?? 1),
 					targetPercent: Number(data.targetPercent ?? 0),
 					shortName: String(data.shortName ?? d.id),
+					customName:
+						typeof data.customName === 'string' && data.customName.trim()
+							? String(data.customName)
+							: null,
 					createdAt: ts ? ts.toDate() : null
 				};
 			});
@@ -107,6 +120,7 @@ export interface UpsertHoldingInput {
 	lotsize: number;
 	targetPercent: number;
 	shortName: string;
+	customName?: string | null;
 }
 
 export async function upsertHolding(portfolioId: string, input: UpsertHoldingInput) {
@@ -123,6 +137,7 @@ export async function upsertHolding(portfolioId: string, input: UpsertHoldingInp
 		lotsize: input.lotsize,
 		targetPercent: input.targetPercent,
 		shortName: input.shortName,
+		customName: input.customName?.trim() ? input.customName.trim() : null,
 		createdAt: serverTimestamp()
 	});
 
@@ -154,10 +169,18 @@ export async function upsertHolding(portfolioId: string, input: UpsertHoldingInp
 export async function patchHolding(
 	portfolioId: string,
 	ticker: string,
-	patch: Partial<Pick<UpsertHoldingInput, 'targetPercent' | 'lotsize'>>
+	patch: Partial<Pick<UpsertHoldingInput, 'targetPercent' | 'lotsize' | 'customName'>>
 ) {
 	const uid = requireUid();
-	await updateDoc(doc(getDb(), 'users', uid, 'portfolios', portfolioId, 'holdings', ticker), patch);
+	const payload: Record<string, unknown> = { ...patch };
+	if ('customName' in payload) {
+		const v = payload.customName;
+		payload.customName = typeof v === 'string' && v.trim() ? v.trim() : null;
+	}
+	await updateDoc(
+		doc(getDb(), 'users', uid, 'portfolios', portfolioId, 'holdings', ticker),
+		payload
+	);
 }
 
 export async function removeHolding(portfolioId: string, ticker: string) {

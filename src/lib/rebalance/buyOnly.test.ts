@@ -5,6 +5,7 @@ import type { RebalanceHolding } from './types';
 function h(partial: Partial<RebalanceHolding> & { ticker: string }): RebalanceHolding {
 	return {
 		shortName: partial.ticker,
+		displayName: partial.ticker,
 		price: 100,
 		lotsize: 1,
 		quantity: 0,
